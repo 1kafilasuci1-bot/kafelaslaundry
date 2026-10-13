@@ -353,7 +353,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, staffList, o
                   />
                 </svg>
               )}
-              <span>{isSignUp ? 'Daftar dengan Google' : 'Masuk dengan Google (Akun Nyata)'}</span>
+              <span>{isSignUp ? 'Daftar dengan Google' : 'Masuk dengan Google'}</span>
             </button>
           </div>
 

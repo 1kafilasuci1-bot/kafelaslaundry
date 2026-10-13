@@ -18,7 +18,7 @@ export const defaultSettings: SettingsData = {
   appTitle: "Kafela's Laundry",
   printerName: 'RPP02N',
   headerStruk: "Kafela's Laundry",
-  address: 'Jl. Utama, Bandung',
+  address: '',
   phoneNumber: '0812-3456-7890',
   footerStruk: 'Barang yang tidak diambil lebih dari 3 bulan akan disedekahkan.',
   chattyFooter: 'Terima kasih atas kepercayaan Anda!',
@@ -115,8 +115,8 @@ export const defaultOwnerUser: User = {
     'lnd-1': "Kafela's Laundry",
   },
   walletBalance: 0,
-  subscriptionEndDate: Date.now() + 30 * 24 * 60 * 60 * 1000,
-  subscriptionType: 'premium',
+  subscriptionEndDate: Date.now() + 7 * 24 * 60 * 60 * 1000,
+  subscriptionType: 'trial',
   createdAt: Date.now(),
 };
 
@@ -376,7 +376,16 @@ export class StorageService {
     try {
       localStorage.setItem(STORAGE_KEY_PREFIX + key, JSON.stringify(value));
     } catch (e) {
-      console.error('Storage set error:', e);
+      console.warn('Storage set error (mungkin kuota localStorage penuh):', e);
+      // Jika key adalah transaksi dan memori penuh, simpan subset 60 transaksi terbaru saja di localStorage
+      if (key === 'transaksi' && Array.isArray(value)) {
+        try {
+          const trimmed = (value as any[]).slice(0, 60);
+          localStorage.setItem(STORAGE_KEY_PREFIX + key, JSON.stringify(trimmed));
+        } catch {
+          // Abaikan jika masih penuh, data utama tetap aman di IndexedDB
+        }
+      }
     }
   }
 

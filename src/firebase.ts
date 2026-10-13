@@ -84,11 +84,17 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test initial connection as required by skill
+// Test initial connection as required by skill (dengan session guard agar tidak boros read saat reload)
 export async function testConnection(): Promise<boolean> {
   try {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('fb_conn_ok')) {
+      return true;
+    }
     await getDocFromServer(doc(db, 'test', 'connection'));
     console.log('Firebase connection verified');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('fb_conn_ok', '1');
+    }
     return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
@@ -96,6 +102,9 @@ export async function testConnection(): Promise<boolean> {
       return false;
     }
     // Document not existing is normal and means online connection works
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('fb_conn_ok', '1');
+    }
     return true;
   }
 }

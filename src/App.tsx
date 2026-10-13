@@ -3,6 +3,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import { FirebaseSyncService } from './utils/firebaseSync';
 import { StorageService, defaultSettings, defaultOwnerUser } from './utils/storage';
+import { IndexedDbService } from './utils/indexedDb';
 import {
   Transaksi,
   Layanan,
@@ -58,11 +59,6 @@ type ViewType =
   | 'settings';
 
 export default function App() {
-  // Initialize sample data if first load
-  useEffect(() => {
-    StorageService.initData();
-  }, []);
-
   // Application State
   const [activeView, setActiveView] = useState<ViewType>('splash');
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
@@ -88,6 +84,16 @@ export default function App() {
       items: Array.isArray(t?.items) ? t.items : [],
     }));
   });
+
+  // Initialize sample data if first load and hydrate from IndexedDB
+  useEffect(() => {
+    StorageService.initData();
+    IndexedDbService.getActiveTransaksi(activeLaundryId).then((idbList) => {
+      if (idbList && idbList.length > 0 && transaksiList.length === 0) {
+        setTransaksiList(idbList);
+      }
+    }).catch(console.warn);
+  }, [activeLaundryId]);
 
   const [layananList, setLayananList] = useState<Layanan[]>(() =>
     StorageService.get<Layanan[]>('layanan', [])
@@ -206,9 +212,9 @@ export default function App() {
       }
       setActiveLaundryId(targetLaundryId);
 
-      // 1. Delta Sync transaksi (hanya ambil selisih perubahan, BUKAN 1.500 transaksi setiap reload!)
+      // 1. Delta Sync transaksi AKTIF saja (0 Reads jika sudah di-cache / tidak ada perubahan)
       const currentCachedTrx = transaksiList.length > 0 ? transaksiList : StorageService.get<Transaksi[]>('transaksi', []);
-      const trxs = await FirebaseSyncService.fetchTransaksi(targetLaundryId, currentCachedTrx, forceSync);
+      const trxs = await FirebaseSyncService.fetchTransaksiAktif(targetLaundryId, currentCachedTrx, forceSync);
       updateTransaksiList(trxs);
 
       // 2. Cached Sync Pelanggan (0 reads jika sudah ada di cache)
@@ -247,15 +253,19 @@ export default function App() {
     StorageService.initData();
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        const profile = await FirebaseSyncService.getOrCreateUserProfile({
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName,
-          phoneNumber: fbUser.phoneNumber,
-        });
-        setCurrentUser(profile);
-        StorageService.set('active_user', profile);
-        await loadFirestoreData(profile);
+        try {
+          const profile = await FirebaseSyncService.getOrCreateUserProfile({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            phoneNumber: fbUser.phoneNumber,
+          });
+          setCurrentUser(profile);
+          StorageService.set('active_user', profile);
+          await loadFirestoreData(profile);
+        } catch (err) {
+          console.warn('Gagal memuat data pengguna pada onAuthStateChanged:', err);
+        }
       } else {
         const stored = StorageService.get<User | null>('active_user', null);
         if (!stored) {
@@ -532,7 +542,7 @@ export default function App() {
       ...currentUser,
       walletBalance: Math.max(0, currentUser.walletBalance - cost),
       subscriptionEndDate: newEnd,
-      subscriptionType: 'premium',
+      subscriptionType: packageName.toLowerCase().includes('pro') ? 'pro' : 'basic',
     };
     setCurrentUser(updatedUser);
     StorageService.set('active_user', updatedUser);
@@ -577,8 +587,24 @@ export default function App() {
   // Real-time device detection (Phone / Mobile vs PC / Desktop / Tablet)
   const device = useDeviceDetect();
   const isEffectiveMobile = device.isMobile;
+
+  // Hak akses skema paket langganan:
+  // Paket Basic (Rp27.000/bln): Akses mobile (Android/iOS)
+  // Paket Pro (Rp57.000/bln): Akses Dashboard versi Web di PC/Komputer + Laporan Lengkap
+  // Trial (7 Hari pertama): Akses penuh semua fitur (Pro)
+  const isProOrTrial = useMemo(() => {
+    if (!currentUser) return true;
+    const t = (currentUser.subscriptionType || 'trial').toLowerCase();
+    const isActive = (currentUser.subscriptionEndDate || 0) > Date.now() || t.includes('trial');
+    return isActive && (t.includes('pro') || t.includes('trial'));
+  }, [currentUser]);
+
   const showDesktopSidebar =
-    !isEffectiveMobile && activeView !== 'splash' && activeView !== 'auth' && !!currentUser;
+    !isEffectiveMobile &&
+    activeView !== 'splash' &&
+    activeView !== 'auth' &&
+    !!currentUser &&
+    isProOrTrial;
 
   const handleLogoutUser = async () => {
     try {
@@ -596,6 +622,24 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-start text-slate-800 antialiased selection:bg-[#800000] selection:text-white">
       {/* Offline Toast */}
       <OfflineIndicator />
+
+      {/* Banner Khusus Pengguna PC dengan Paket Basic */}
+      {!isEffectiveMobile && !isProOrTrial && !!currentUser && activeView !== 'splash' && activeView !== 'auth' && (
+        <div className="w-full bg-amber-400 text-slate-900 px-4 py-2 text-xs font-bold flex items-center justify-between shadow-xs sticky top-0 z-50">
+          <div className="flex items-center gap-2">
+            <span>🖥️</span>
+            <span>
+              Akses Dashboard Web PC Layar Penuh adalah fitur <strong>Paket Pro (Rp57.000/bln)</strong>. Paket akun Anda saat ini: <strong>Paket Basic (khusus mobile Android/iOS)</strong>.
+            </span>
+          </div>
+          <button
+            onClick={() => setActiveView('kelola_owner')}
+            className="px-3 py-1 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-[11px] font-extrabold transition active:scale-95 shrink-0 ml-3"
+          >
+            Upgrade ke Paket Pro
+          </button>
+        </div>
+      )}
 
       {/* Main Container: Full Web App Shell with Sidebar on PC/Tablet, Original Container on HP */}
       <div
@@ -823,6 +867,8 @@ export default function App() {
             transaksiList={transaksiList}
             pengeluaranList={pengeluaranList}
             activeLaundryId={activeLaundryId}
+            currentUser={currentUser}
+            onOpenUpgrade={() => setActiveView('kelola_owner')}
           />
         )}
 
@@ -840,10 +886,15 @@ export default function App() {
                 ...trx,
                 status: 'Diterima',
                 tanggalPengambilan: null,
+                terakhirDieditPada: Date.now(),
               };
-              updateTransaksiList(
-                transaksiList.map((t) => (t.id === trx.id ? restored : t))
-              );
+              const exists = transaksiList.some((t) => t.id === trx.id);
+              const updatedList = exists
+                ? transaksiList.map((t) => (t.id === trx.id ? restored : t))
+                : [restored, ...transaksiList];
+              updateTransaksiList(updatedList);
+              IndexedDbService.restoreToActive(activeLaundryId, restored).catch(console.error);
+              FirebaseSyncService.saveTransaksi(restored).catch(console.error);
             }}
           />
         )}

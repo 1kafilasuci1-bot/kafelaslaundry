@@ -235,7 +235,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Perhitungan Status Langganan & Masa Aktif
   const now = Date.now();
-  const subscriptionEnd = currentUser.subscriptionEndDate || (now + 30 * 24 * 60 * 60 * 1000);
+  const subscriptionEnd = currentUser.subscriptionEndDate || (now + 7 * 24 * 60 * 60 * 1000);
   const diffMs = subscriptionEnd - now;
   const sisaHari = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
   const isExpiringSoon = sisaHari <= 5 && sisaHari > 0;
@@ -251,10 +251,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const paketNama = useMemo(() => {
     const raw = (currentUser.subscriptionType || '').toLowerCase();
+    if (raw.includes('trial') || raw.includes('uji') || raw.includes('coba')) return 'Trial Gratis (7 Hari)';
+    if (raw.includes('pro')) return 'Paket Pro';
+    if (raw.includes('basic')) return 'Paket Basic';
     if (raw.includes('harian')) return 'Paket Harian';
-    if (raw.includes('bulanan')) return 'Paket Bulanan';
-    if (raw.includes('standar') || raw.includes('gratis') || raw.includes('free')) return 'Paket Standar';
-    return 'Paket Premium';
+    return 'Paket Basic';
   }, [currentUser.subscriptionType]);
 
   const formattedToday = new Intl.DateTimeFormat('id-ID', {

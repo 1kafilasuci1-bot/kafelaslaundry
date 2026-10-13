@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Trash2, CheckCircle2, User, MapPin, Tag } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, CheckCircle2, User, MapPin, Tag, Sparkles, X } from 'lucide-react';
 import { Transaksi, LayananItem, Layanan, Pelanggan, SettingsData } from '../types';
 import { formatRupiah, calculateCompletionDate } from '../utils/formatters';
 
@@ -34,6 +34,13 @@ export const TambahEditView: React.FC<TambahEditViewProps> = ({
   const [selectedLayananId, setSelectedLayananId] = useState<string>(layananList[0]?.id || '');
   const [beratInput, setBeratInput] = useState<string>('1');
   const [items, setItems] = useState<LayananItem[]>(transaksiToEdit?.items || []);
+
+  // Fleksibilitas Penambahan Biaya Ekstra (Basic & Pro)
+  const [showExtraFeeModal, setShowExtraFeeModal] = useState<boolean>(false);
+  const [extraFeeName, setExtraFeeName] = useState<string>('');
+  const [extraFeeCost, setExtraFeeCost] = useState<string>('');
+  const [extraFeeQty, setExtraFeeQty] = useState<string>('1');
+  const [extraFeeUnit, setExtraFeeUnit] = useState<string>('item');
 
   // Customer suggestions
   const [customerSuggestions, setCustomerSuggestions] = useState<Pelanggan[]>([]);
@@ -100,6 +107,41 @@ export const TambahEditView: React.FC<TambahEditViewProps> = ({
 
   const handleRemoveItem = (index: number) => {
     setItems(items.filter((_, i) => i !== index));
+  };
+
+  const PRESET_EXTRA_FEES = [
+    { nama: 'Biaya Antar - Jemput', harga: 10000, satuan: 'trip' },
+    { nama: 'Parfum / Softener Premium', harga: 5000, satuan: 'item' },
+    { nama: 'Cuci Kilat / Express Ekstra', harga: 15000, satuan: 'paket' },
+    { nama: 'Pembersih Noda Berat', harga: 10000, satuan: 'item' },
+    { nama: 'Plastik / Hanger Tambahan', harga: 2000, satuan: 'pcs' },
+  ];
+
+  const handleAddExtraFee = (name: string, cost: number, qty: number = 1, unit: string = 'item') => {
+    if (!name.trim()) {
+      alert('Nama item/layanan ekstra tidak boleh kosong.');
+      return;
+    }
+    if (isNaN(cost) || cost <= 0) {
+      alert('Masukkan biaya ekstra yang valid (lebih dari Rp 0).');
+      return;
+    }
+
+    const newItem: LayananItem = {
+      namaLayanan: `[Ekstra] ${name.trim()}`,
+      berat: qty,
+      hargaPerKg: cost,
+      hargaSatuan: cost,
+      satuan: unit,
+      subtotal: Math.round(qty * cost),
+    };
+
+    setItems([...items, newItem]);
+    setShowExtraFeeModal(false);
+    setExtraFeeName('');
+    setExtraFeeCost('');
+    setExtraFeeQty('1');
+    setExtraFeeUnit('item');
   };
 
   const handleSave = () => {
@@ -311,6 +353,18 @@ export const TambahEditView: React.FC<TambahEditViewProps> = ({
               ))
             )}
           </div>
+
+          {/* Tombol Fleksibilitas Tambah Biaya Ekstra (Basic & Pro) */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setShowExtraFeeModal(true)}
+              className="w-full py-2.5 px-3 rounded-xl border border-dashed border-amber-400 bg-amber-50/70 hover:bg-amber-100/70 text-amber-900 font-bold text-xs flex items-center justify-center gap-2 transition active:scale-98"
+            >
+              <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>+ Tambah Biaya / Item Ekstra (Antar-Jemput, Parfum, Express, dll)</span>
+            </button>
+          </div>
         </div>
 
 
@@ -421,6 +475,106 @@ export const TambahEditView: React.FC<TambahEditViewProps> = ({
           {isEditMode ? 'Simpan Perubahan Transaksi' : 'Simpan Transaksi'}
         </button>
       </main>
+
+      {/* Modal Fleksibilitas Tambah Biaya / Item Ekstra */}
+      {showExtraFeeModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-4 sm:p-5 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">Tambah Biaya / Layanan Ekstra</h3>
+                  <p className="text-[11px] text-slate-500">Fleksibel untuk ongkir, parfum, noda, atau item khusus</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExtraFeeModal(false)}
+                className="p-1 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Pilihan Cepat / Preset Populer */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                Pilihan Cepat (1-Klik):
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {PRESET_EXTRA_FEES.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleAddExtraFee(preset.nama, preset.harga, 1, preset.satuan)}
+                    className="p-2 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/50 text-left transition flex items-center justify-between group"
+                  >
+                    <div className="min-w-0 pr-1">
+                      <div className="font-bold text-xs text-slate-800 group-hover:text-amber-900 truncate">
+                        {preset.nama}
+                      </div>
+                      <div className="text-[10px] text-slate-500">{formatRupiah(preset.harga)}</div>
+                    </div>
+                    <Plus className="w-4 h-4 text-slate-400 group-hover:text-amber-600 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Form Input Kustom */}
+            <div className="pt-2 border-t border-slate-100 space-y-2.5">
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                Atau Buat Biaya Ekstra Kustom:
+              </label>
+
+              <div>
+                <label className="block text-[11px] text-slate-500 mb-0.5">Nama Layanan / Biaya Ekstra</label>
+                <input
+                  type="text"
+                  placeholder="Misal: Ongkos Antar Jauh / Cuci Sepatu Anak"
+                  value={extraFeeName}
+                  onChange={(e) => setExtraFeeName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-[#800000] focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-0.5">Biaya / Harga (Rp)</label>
+                  <input
+                    type="number"
+                    placeholder="Contoh: 15000"
+                    value={extraFeeCost}
+                    onChange={(e) => setExtraFeeCost(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold focus:ring-2 focus:ring-[#800000] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-0.5">Satuan</label>
+                  <input
+                    type="text"
+                    placeholder="item / trip / pcs"
+                    value={extraFeeUnit}
+                    onChange={(e) => setExtraFeeUnit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-[#800000] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleAddExtraFee(extraFeeName, parseInt(extraFeeCost, 10) || 0, parseFloat(extraFeeQty) || 1, extraFeeUnit || 'item')}
+                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold text-xs shadow-xs transition active:scale-98"
+              >
+                + Tambahkan Biaya Ekstra ke Nota
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -13,7 +13,10 @@ import {
   ChevronDown,
   Edit,
   Trash2,
-  X
+  X,
+  Smartphone,
+  Monitor,
+  Sparkles,
 } from 'lucide-react';
 import { User, Laundry, SubscriptionHistory } from '../types';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
@@ -63,10 +66,14 @@ export const KelolaOwnerView: React.FC<KelolaOwnerViewProps> = ({
   const jumlahCabang = laundries.length;
   const cabangTambahan = Math.max(0, jumlahCabang - 1);
 
-  // Pricing formula matching KelolaOwnerActivity.kt
-  const HARGA_DASAR_BULANAN = 27000;
-  const HARGA_CABANG_BULANAN = 20000;
-  const totalBiayaBulanan = HARGA_DASAR_BULANAN + cabangTambahan * HARGA_CABANG_BULANAN;
+  // Skema Paket Resmi:
+  // Paket Basic (Rp27.000/bln): Akses Mobile (Android/iOS) + Pencatatan Transaksi & Biaya Ekstra
+  // Paket Pro (Rp57.000/bln): Semua Fitur Basic + Web Dashboard PC + Laporan Operasional & Keuangan Lengkap
+  const HARGA_BASIC_BULANAN = 27000;
+  const totalBiayaBasic = HARGA_BASIC_BULANAN + cabangTambahan * 20000;
+
+  const HARGA_PRO_BULANAN = 57000;
+  const totalBiayaPro = HARGA_PRO_BULANAN + cabangTambahan * 20000;
 
   const HARGA_DASAR_HARIAN = 1000;
   const HARGA_CABANG_HARIAN = 500;
@@ -77,15 +84,27 @@ export const KelolaOwnerView: React.FC<KelolaOwnerViewProps> = ({
     Math.ceil(((currentUser.subscriptionEndDate || Date.now()) - Date.now()) / (1000 * 60 * 60 * 24))
   );
 
-  const handlePayBulanan = () => {
-    if (currentUser.walletBalance < totalBiayaBulanan) {
-      alert(`Saldo dompet tidak mencukupi (${formatRupiah(totalBiayaBulanan)}). Silakan isi saldo terlebih dahulu.`);
+  const handlePayBasic = () => {
+    if (currentUser.walletBalance < totalBiayaBasic) {
+      alert(`Saldo dompet tidak mencukupi (${formatRupiah(totalBiayaBasic)}). Silakan isi saldo terlebih dahulu.`);
       setShowTopUpModal(true);
       return;
     }
-    if (confirm(`Beli Paket Bulanan 30 Hari seharga ${formatRupiah(totalBiayaBulanan)}? Saldo dompet akan dipotong.`)) {
-      onExtendSubscription(`Paket Bulanan (${jumlahCabang} Cabang)`, totalBiayaBulanan, 30);
-      alert('Perpanjangan langganan 30 hari berhasil!');
+    if (confirm(`Beli Paket Basic (30 Hari) seharga ${formatRupiah(totalBiayaBasic)}? Saldo dompet akan dipotong.`)) {
+      onExtendSubscription(`Paket Basic (${jumlahCabang} Cabang)`, totalBiayaBasic, 30);
+      alert('Perpanjangan Paket Basic 30 hari berhasil!');
+    }
+  };
+
+  const handlePayPro = () => {
+    if (currentUser.walletBalance < totalBiayaPro) {
+      alert(`Saldo dompet tidak mencukupi (${formatRupiah(totalBiayaPro)}). Silakan isi saldo terlebih dahulu.`);
+      setShowTopUpModal(true);
+      return;
+    }
+    if (confirm(`Beli Paket Pro (30 Hari) seharga ${formatRupiah(totalBiayaPro)}? Saldo dompet akan dipotong.`)) {
+      onExtendSubscription(`Paket Pro (${jumlahCabang} Cabang)`, totalBiayaPro, 30);
+      alert('Perpanjangan Paket Pro 30 hari berhasil!');
     }
   };
 
@@ -146,10 +165,20 @@ export const KelolaOwnerView: React.FC<KelolaOwnerViewProps> = ({
 
         {/* 1. WALLET & SUBSCRIPTION CARD (Matches wallet card in activity_kelola_owner.xml) */}
         <div className="bg-[#1e293b] text-white rounded-2xl shadow-md overflow-hidden border border-slate-700">
-          {/* Header Masa Aktif */}
-          <div className="bg-[#800000] px-4 py-2.5 text-center text-xs font-bold flex items-center justify-center gap-1.5">
-            <Clock className="w-4 h-4" />
-            <span>Masa Aktif Akun: {sisaHari > 0 ? `Aktif (${sisaHari} Hari Tersisa)` : 'Kedaluwarsa'}</span>
+          {/* Header Masa Aktif & Tipe Paket */}
+          <div className="bg-[#800000] px-4 py-2.5 text-center text-xs font-bold flex flex-wrap items-center justify-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-4 h-4" />
+              <span>Masa Aktif: {sisaHari > 0 ? `Aktif (${sisaHari} Hari Tersisa)` : 'Kedaluwarsa'}</span>
+            </div>
+            <span className="hidden sm:inline">•</span>
+            <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-900 font-extrabold text-[10px]">
+              {(currentUser.subscriptionType || 'trial').toLowerCase().includes('pro')
+                ? 'Paket Pro'
+                : (currentUser.subscriptionType || 'trial').toLowerCase().includes('basic')
+                ? 'Paket Basic'
+                : 'Trial Gratis (7 Hari)'}
+            </span>
           </div>
 
           {/* Saldo Akun & Isi Saldo */}
@@ -170,30 +199,92 @@ export const KelolaOwnerView: React.FC<KelolaOwnerViewProps> = ({
           {/* Perpanjangan Options */}
           <div className="p-4 space-y-3">
             <div className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
-              Pilihan Perpanjangan Langganan:
+              Pilihan Paket Langganan Resmi:
             </div>
 
-            {/* Bulanan */}
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700">
-              <div>
-                <div className="font-bold text-xs text-white">Bulanan (30 Hari)</div>
-                <div className="text-[11px] text-slate-400">
-                  {formatRupiah(totalBiayaBulanan)} ({jumlahCabang} Cabang)
+            {/* 1. Paket Basic */}
+            <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700 space-y-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-white">Paket Basic (30 Hari)</span>
+                    <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-400/30 px-1.5 py-0.2 rounded font-semibold flex items-center gap-1">
+                      <Smartphone className="w-3 h-3" /> Mobile Android/iOS
+                    </span>
+                  </div>
+                  <div className="text-sm font-black text-emerald-400 mt-0.5">
+                    {formatRupiah(totalBiayaBasic)}{' '}
+                    <span className="text-[11px] font-normal text-slate-400">/ bulan ({jumlahCabang} Cabang)</span>
+                  </div>
+                </div>
+                <button
+                  onClick={handlePayBasic}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition active:scale-95 shrink-0"
+                >
+                  Pilih Basic
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-300 space-y-1 pt-1 border-t border-slate-700/60">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>Akses aplikasi mobile (Android/iOS)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>Fitur pencatatan transaksi standar</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>Fleksibilitas penambahan biaya item/layanan laundry ekstra</span>
                 </div>
               </div>
-              <button
-                onClick={handlePayBulanan}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition active:scale-95"
-              >
-                Bayar
-              </button>
             </div>
 
-            {/* Harian */}
+            {/* 2. Paket Pro (Rekomendasi) */}
+            <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-800 to-[#2c1810] border-2 border-amber-500/60 space-y-2.5 relative overflow-hidden">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-white">Paket Pro (30 Hari)</span>
+                    <span className="text-[10px] bg-amber-400 text-slate-900 px-1.5 py-0.2 rounded font-black flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> Rekomendasi
+                    </span>
+                  </div>
+                  <div className="text-sm font-black text-amber-300 mt-0.5">
+                    {formatRupiah(totalBiayaPro)}{' '}
+                    <span className="text-[11px] font-normal text-slate-400">/ bulan ({jumlahCabang} Cabang)</span>
+                  </div>
+                </div>
+                <button
+                  onClick={handlePayPro}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold text-xs shadow-xs transition active:scale-95 shrink-0"
+                >
+                  Pilih Pro
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-200 space-y-1 pt-1 border-t border-amber-500/30">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span className="font-semibold text-white">Semua fitur Paket Basic</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Monitor className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Akses Dashboard versi Web di PC / Komputer</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Fitur laporan operasional & keuangan lengkap (ekspor data, analitik harian/bulanan)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Paket Harian */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700 gap-2">
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-xs text-white">
-                  Harian ({formatRupiah(hargaHarianPerHari)}/hari)
+                  Opsi Harian ({formatRupiah(hargaHarianPerHari)}/hari)
                 </div>
                 <div className="text-[11px] text-slate-400">Pilih durasi fleksibel</div>
               </div>
@@ -206,7 +297,7 @@ export const KelolaOwnerView: React.FC<KelolaOwnerViewProps> = ({
               />
               <button
                 onClick={handlePayHarian}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition active:scale-95 shrink-0"
+                className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs shadow-xs transition active:scale-95 shrink-0"
               >
                 Bayar
               </button>

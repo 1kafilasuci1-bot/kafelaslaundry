@@ -82,16 +82,17 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
   // Subscription calculation
   const subNow = Date.now();
-  const subEnd = currentUser.subscriptionEndDate || (subNow + 30 * 24 * 60 * 60 * 1000);
+  const subEnd = currentUser.subscriptionEndDate || (subNow + 7 * 24 * 60 * 60 * 1000);
   const subDiffMs = subEnd - subNow;
   const subSisaHari = Math.max(0, Math.ceil(subDiffMs / (1000 * 60 * 60 * 24)));
   const subIsExpired = subDiffMs <= 0;
   const subPaketNama = (() => {
     const raw = (currentUser.subscriptionType || '').toLowerCase();
+    if (raw.includes('trial') || raw.includes('uji') || raw.includes('coba')) return 'Trial Gratis (7 Hari)';
+    if (raw.includes('pro')) return 'Paket Pro';
+    if (raw.includes('basic')) return 'Paket Basic';
     if (raw.includes('harian')) return 'Paket Harian';
-    if (raw.includes('bulanan')) return 'Paket Bulanan';
-    if (raw.includes('standar') || raw.includes('gratis') || raw.includes('free')) return 'Paket Standar';
-    return 'Paket Premium';
+    return 'Paket Pro';
   })();
 
   const navGroups = [

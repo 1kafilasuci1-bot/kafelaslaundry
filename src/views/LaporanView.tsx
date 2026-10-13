@@ -1,13 +1,30 @@
-import React, { useState, useMemo } from 'react';
-import { ArrowLeft, ChevronDown, ChevronUp, Calendar, TrendingUp, BarChart3, Users, DollarSign } from 'lucide-react';
-import { Transaksi, Pengeluaran, LayananItem } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  TrendingUp,
+  BarChart3,
+  Users,
+  DollarSign,
+  Download,
+  Sparkles,
+  X,
+  FileSpreadsheet,
+  Lock,
+} from 'lucide-react';
+import { User, Transaksi, Pengeluaran, LayananItem } from '../types';
 import { formatRupiah, formatShortDate } from '../utils/formatters';
+import { FirebaseSyncService } from '../utils/firebaseSync';
 
 interface LaporanViewProps {
   onBack: () => void;
   transaksiList: Transaksi[];
   pengeluaranList: Pengeluaran[];
   activeLaundryId: string;
+  currentUser?: User | null;
+  onOpenUpgrade?: () => void;
 }
 
 export const LaporanView: React.FC<LaporanViewProps> = ({
@@ -15,6 +32,8 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   transaksiList,
   pengeluaranList,
   activeLaundryId,
+  currentUser,
+  onOpenUpgrade,
 }) => {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth();
@@ -22,6 +41,33 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth); // 0-11, or -1 for All
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [showDailyDetails, setShowDailyDetails] = useState<boolean>(false);
+  const [showProUpgradeModal, setShowProUpgradeModal] = useState<boolean>(false);
+  const [monthArchive, setMonthArchive] = useState<Transaksi[]>([]);
+
+  // Cek apakah akun memiliki akses Fitur Laporan Lengkap (Pro / Trial)
+  const isProOrTrial = useMemo(() => {
+    if (!currentUser) return true;
+    const subType = (currentUser.subscriptionType || 'trial').toLowerCase();
+    const isActive = (currentUser.subscriptionEndDate || 0) > Date.now() || subType.includes('trial');
+    return isActive && (subType.includes('pro') || subType.includes('trial'));
+  }, [currentUser]);
+
+  // Muat arsip bulan dari IndexedDB lokal (0 Reads Firestore jika sudah tersimpan)
+  useEffect(() => {
+    let isMounted = true;
+    if (selectedMonth !== -1) {
+      FirebaseSyncService.fetchArsipBulan(activeLaundryId, selectedYear, selectedMonth)
+        .then((list) => {
+          if (isMounted) setMonthArchive(list);
+        })
+        .catch(console.warn);
+    } else {
+      setMonthArchive([]);
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [activeLaundryId, selectedYear, selectedMonth]);
 
   // Collapsible section toggles
   const [expandPemasukan, setExpandPemasukan] = useState(true);
@@ -36,7 +82,12 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
 
   // Filter transactions & expenses based on selected Month & Year
   const { filteredTrx, filteredExp } = useMemo(() => {
-    const trx = transaksiList.filter((t) => {
+    const map = new Map<string, Transaksi>();
+    transaksiList.forEach((t) => map.set(t.id, t));
+    monthArchive.forEach((t) => map.set(t.id, t));
+    const combinedTrx = Array.from(map.values());
+
+    const trx = combinedTrx.filter((t) => {
       if (t.laundryId !== activeLaundryId) return false;
       const d = new Date(t.tanggalMasuk);
       const matchYear = d.getFullYear() === selectedYear;
@@ -131,20 +182,93 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
     };
   }, [filteredTrx, filteredExp]);
 
+  // Handler Ekspor Data CSV (Fitur Paket Pro)
+  const handleExportCSV = () => {
+    if (!isProOrTrial) {
+      setShowProUpgradeModal(true);
+      return;
+    }
+
+    if (filteredTrx.length === 0 && filteredExp.length === 0) {
+      alert('Tidak ada data transaksi atau pengeluaran pada periode yang dipilih untuk diekspor.');
+      return;
+    }
+
+    const periodLabel = selectedMonth === -1 ? `Tahun_${selectedYear}` : `${monthNames[selectedMonth]}_${selectedYear}`;
+
+    // 1. Ekspor Transaksi
+    const trxHeaders = [
+      'Nomor Nota',
+      'Tanggal Masuk',
+      'Nama Pelanggan',
+      'No Telepon',
+      'Rincian Layanan',
+      'Total Biaya (Rp)',
+      'DP / Pembayaran (Rp)',
+      'Status Bayar',
+      'Metode Bayar',
+      'Status Pengerjaan',
+      'Petugas',
+    ];
+
+    const trxRows = filteredTrx.map((t) => [
+      `"${t.nomorTransaksi || t.id}"`,
+      `"${new Date(t.tanggalMasuk).toLocaleDateString('id-ID')}"`,
+      `"${(t.namaPelanggan || '').replace(/"/g, '""')}"`,
+      `"${t.nomorTelepon || '-'}"`,
+      `"${(t.items || []).map((it) => `${it.namaLayanan} (${it.berat} ${it.satuan})`).join('; ').replace(/"/g, '""')}"`,
+      t.totalHarga,
+      t.statusPembayaran === 'Lunas' ? t.totalHarga : t.jumlahDp,
+      `"${t.statusPembayaran}"`,
+      `"${t.metodePembayaran || 'Tunai'}"`,
+      `"${t.status}"`,
+      `"${t.dikerjakanOleh || '-'}"`,
+    ]);
+
+    const csvContent = '\uFEFF' + [trxHeaders.join(','), ...trxRows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Laporan_Transaksi_Kafela_${periodLabel}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-slate-100 text-slate-800 pb-16">
       {/* Top Header */}
-      <header className="bg-[#800000] text-white shadow-md sticky top-0 z-30 flex items-center px-4 md:px-6 h-14">
-        <button onClick={onBack} className="p-1 -ml-1 rounded-full hover:bg-white/10 transition mr-3">
-          <ArrowLeft className="w-5 h-5 text-white" />
+      <header className="bg-[#800000] text-white shadow-md sticky top-0 z-30 flex items-center justify-between px-4 md:px-6 h-14">
+        <div className="flex items-center">
+          <button onClick={onBack} className="p-1 -ml-1 rounded-full hover:bg-white/10 transition mr-3">
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+          <div className="flex items-center gap-2">
+            <h1 className="font-bold text-base tracking-wide">Laporan Operasional & Keuangan</h1>
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-400 text-slate-900">
+              <Sparkles className="w-3 h-3" />
+              {isProOrTrial ? 'Paket Pro' : 'Paket Basic'}
+            </span>
+          </div>
+        </div>
+
+        {/* Quick Export Button in Header */}
+        <button
+          onClick={handleExportCSV}
+          className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/30 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+          title="Ekspor Laporan (Excel/CSV)"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span className="hidden xs:inline">Ekspor CSV</span>
         </button>
-        <h1 className="font-bold text-base tracking-wide">Laporan Keuangan</h1>
       </header>
 
       {/* Filter Month & Year Bar */}
       <div className="bg-white border-b border-slate-200 px-4 md:px-6 py-2.5 shadow-2xs">
-        <div className="max-w-xl md:max-w-5xl mx-auto w-full flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-1 md:max-w-xs">
+        <div className="max-w-xl md:max-w-5xl mx-auto w-full flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px] md:max-w-xs">
             <span className="text-xs font-bold text-slate-600">Bulan:</span>
             <select
               value={selectedMonth}
@@ -173,6 +297,19 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
                 </option>
               ))}
             </select>
+
+            <button
+              onClick={handleExportCSV}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 ${
+                isProOrTrial
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                  : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Ekspor Data</span>
+              {!isProOrTrial && <Lock className="w-3 h-3 text-amber-700" />}
+            </button>
           </div>
         </div>
       </div>
@@ -362,6 +499,51 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
           </div>
         )}
       </main>
+
+      {/* Modal Upgrade Pro untuk Ekspor Data & Analitik Lengkap */}
+      {showProUpgradeModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-100 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 mx-auto flex items-center justify-center">
+              <Sparkles className="w-6 h-6" />
+            </div>
+
+            <div>
+              <h3 className="font-extrabold text-base text-slate-900">Fitur Eksklusif Paket Pro</h3>
+              <p className="text-xs text-slate-600 mt-1">
+                Ekspor data laporan (Excel/CSV) & analitik keuangan mendalam tersedia di <strong>Paket Pro (Rp57.000/bulan)</strong>.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-3 text-left text-[11px] text-slate-600 space-y-1.5 border border-slate-200">
+              <div className="font-bold text-slate-800">Keunggulan Paket Pro:</div>
+              <div>• Ekspor data rekapitulasi transaksi ke Excel/CSV</div>
+              <div>• Akses Dashboard versi Web di PC / Komputer</div>
+              <div>• Analisis performa pelanggan & layanan lengkap</div>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProUpgradeModal(false);
+                  if (onOpenUpgrade) onOpenUpgrade();
+                }}
+                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold text-xs shadow-xs transition active:scale-95"
+              >
+                Upgrade ke Paket Pro Sekarang
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowProUpgradeModal(false)}
+                className="w-full py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
